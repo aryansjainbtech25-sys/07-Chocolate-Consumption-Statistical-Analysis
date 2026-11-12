@@ -210,56 +210,166 @@ def build_workbook(raw, df, paths, panel):
     for k, v in vc.items():
         freq.append([str(k), int(v)])
 
-    # Native editable Excel charts. Supporting data are kept on separate sheets.
+    # Native editable Excel charts with explicit data orientation.
+    from openpyxl.chart.series_factory import SeriesFactory
+
     chartws = wb.create_sheet("Charts")
     chartws["A1"] = "Editable Excel charts; matching high-resolution PNGs are in charts/."
+
     latest_year = int(df["Year"].max())
-    latest = df[(df["Year"] == latest_year) & (df["Entity_Type"] == "Country/territory")].nlargest(12, VALUE).sort_values(VALUE)
+    latest = (
+        df[(df["Year"] == latest_year) &
+           (df["Entity_Type"] == "Country/territory")]
+        .nlargest(12, VALUE)
+        .sort_values(VALUE)
+    )
+
+    # 1. Top countries: one series, country names as categories.
     topws = wb.create_sheet("Top_Countries_Data")
     topws.append(["Entity", "Supply (kg/person/year)"])
-    for _,r in latest.iterrows(): topws.append([r.Entity, float(r[VALUE])])
-    bar = BarChart(); bar.type = "bar"; bar.style = 10; bar.title = f"Top countries/territories ({latest_year})"
-    bar.y_axis.title = "Entity"; bar.x_axis.title = "kg/person/year"
-    bar.add_data(Reference(topws,min_col=2,min_row=1,max_row=len(latest)+1),titles_from_data=True)
-    bar.set_categories(Reference(topws,min_col=1,min_row=2,max_row=len(latest)+1)); bar.height=8; bar.width=15
-    chartws.add_chart(bar,"A3")
+    for _, r in latest.iterrows():
+        topws.append([r.Entity, float(r[VALUE])])
+
+    bar = BarChart()
+    bar.type = "bar"
+    bar.style = 10
+    bar.title = f"Top countries/territories ({latest_year})"
+    bar.y_axis.title = "Country / territory"
+    bar.x_axis.title = "kg/person/year"
+    bar.add_data(
+        Reference(topws, min_col=2, min_row=1, max_row=len(latest)+1),
+        titles_from_data=True,
+        from_rows=False
+    )
+    bar.set_categories(
+        Reference(topws, min_col=1, min_row=2, max_row=len(latest)+1)
+    )
+    bar.legend = None
+    bar.height = 9
+    bar.width = 17
+    bar.y_axis.scaling.orientation = "maxMin"
+    chartws.add_chart(bar, "A3")
+
+    # 2. Entity type: pie chart.
     entws = wb.create_sheet("Entity_Type_Data")
     entws.append(["Entity type", "Frequency"])
-    for k,v in df["Entity_Type"].value_counts().items(): entws.append([k,int(v)])
-    pie = __import__("openpyxl.chart",fromlist=["PieChart"]).PieChart()
+    for k, v in df["Entity_Type"].value_counts().items():
+        entws.append([k, int(v)])
+
+    pie = __import__(
+        "openpyxl.chart", fromlist=["PieChart"]
+    ).PieChart()
     pie.title = f"Entity type composition ({latest_year})"
-    pie.add_data(Reference(entws,min_col=2,min_row=1,max_row=3),titles_from_data=True)
-    pie.set_categories(Reference(entws,min_col=1,min_row=2,max_row=3)); pie.height=7; pie.width=10
-    chartws.add_chart(pie,"A20")
+    pie.add_data(
+        Reference(entws, min_col=2, min_row=1, max_row=3),
+        titles_from_data=True,
+        from_rows=False
+    )
+    pie.set_categories(
+        Reference(entws, min_col=1, min_row=2, max_row=3)
+    )
+    pie.height = 8
+    pie.width = 11
+    chartws.add_chart(pie, "A21")
+
+    # 3. Supply distribution: one column series, seven classes.
     histws = wb.create_sheet("Histogram_Data")
     histws.append(["Supply class (kg/person/year)", "Frequency"])
-    for k,v in vc.items(): histws.append([str(k),int(v)])
-    hist = BarChart(); hist.type="col"; hist.title="Per-capita cocoa supply distribution"
-    hist.y_axis.title="Frequency"; hist.x_axis.title="Supply class (kg/person/year)"
-    hist.add_data(Reference(histws,min_col=2,min_row=1,max_row=len(vc)+1),titles_from_data=True)
-    hist.set_categories(Reference(histws,min_col=1,min_row=2,max_row=len(vc)+1)); hist.height=7; hist.width=15
-    chartws.add_chart(hist,"J3")
-    # Scatter chart for country/territory panel; data are a reproducible display sample.
+    for k, v in vc.items():
+        histws.append([str(k), int(v)])
+
+    hist = BarChart()
+    hist.type = "col"
+    hist.style = 10
+    hist.title = "Per-capita cocoa supply distribution"
+    hist.y_axis.title = "Frequency"
+    hist.x_axis.title = "Supply class (kg/person/year)"
+    hist.add_data(
+        Reference(histws, min_col=2, min_row=1, max_row=len(vc)+1),
+        titles_from_data=True,
+        from_rows=False
+    )
+    hist.set_categories(
+        Reference(histws, min_col=1, min_row=2, max_row=len(vc)+1)
+    )
+    hist.legend = None
+    hist.gapWidth = 45
+    hist.height = 8
+    hist.width = 17
+    chartws.add_chart(hist, "J3")
+
+    # 4. Genuine XY scatterplot: one series, Year as X and supply as Y.
     scatterws = wb.create_sheet("Scatter_Data")
     scatterws.append(["Year", "Supply (kg/person/year)"])
-    scatter_sample = panel.sample(min(3500,len(panel)), random_state=42)
-    for _,r in scatter_sample.iterrows(): scatterws.append([int(r.Year),float(r[VALUE])])
-    sc = ScatterChart(); sc.title="Year vs per-capita cocoa supply (display sample)"
-    sc.x_axis.title="Year"; sc.y_axis.title="kg/person/year"; sc.style=13
-    xvalues=Reference(scatterws,min_col=1,min_row=2,max_row=len(scatter_sample)+1)
-    yvalues=Reference(scatterws,min_col=2,min_row=2,max_row=len(scatter_sample)+1)
-    sc.series.append(Series(yvalues,xvalues,title="Country-year observations")); sc.height=8; sc.width=15
-    chartws.add_chart(sc,"J20")
-    # World aggregate line chart.
+
+    scatter_sample = panel.sample(
+        min(3500, len(panel)), random_state=42
+    )
+    for _, r in scatter_sample.iterrows():
+        scatterws.append([int(r.Year), float(r[VALUE])])
+
+    sc = ScatterChart()
+    sc.title = "Year vs per-capita cocoa supply"
+    sc.x_axis.title = "Year"
+    sc.y_axis.title = "kg/person/year"
+    sc.style = 13
+    sc.scatterStyle = "marker"
+
+    xvalues = Reference(
+        scatterws, min_col=1, min_row=2,
+        max_row=len(scatter_sample)+1
+    )
+    yvalues = Reference(
+        scatterws, min_col=2, min_row=2,
+        max_row=len(scatter_sample)+1
+    )
+
+    sc.series.append(
+        SeriesFactory(
+            yvalues,
+            xvalues,
+            title="Country-year observations"
+        )
+    )
+    sc.height = 9
+    sc.width = 17
+    chartws.add_chart(sc, "J21")
+
+    # 5. World trend: one continuous line series.
     world = df[df["Code"].eq("OWID_WRL")].sort_values("Year")
+
     if len(world):
         dataws = wb.create_sheet("World_Trend_Data")
         dataws.append(["Year", "Per-capita cocoa supply"])
-        for _,r in world.iterrows(): dataws.append([int(r.Year), float(r[VALUE])])
-        ch = LineChart(); ch.title = "World per-capita cocoa supply"; ch.y_axis.title = "kg/person/year"; ch.x_axis.title = "Year"
-        ch.add_data(Reference(dataws,min_col=2,min_row=1,max_row=len(world)+1),titles_from_data=True)
-        ch.set_categories(Reference(dataws,min_col=1,min_row=2,max_row=len(world)+1)); ch.height=8; ch.width=15
-        chartws.add_chart(ch,"A37")
+
+        for _, r in world.iterrows():
+            dataws.append([int(r.Year), float(r[VALUE])])
+
+        ch = LineChart()
+        ch.title = "World per-capita cocoa supply"
+        ch.y_axis.title = "kg/person/year"
+        ch.x_axis.title = "Year"
+        ch.style = 13
+
+        ch.add_data(
+            Reference(
+                dataws, min_col=2, min_row=1,
+                max_row=len(world)+1
+            ),
+            titles_from_data=True,
+            from_rows=False
+        )
+        ch.set_categories(
+            Reference(
+                dataws, min_col=1, min_row=2,
+                max_row=len(world)+1
+            )
+        )
+        ch.legend = None
+        ch.height = 9
+        ch.width = 17
+        chartws.add_chart(ch, "A39")
+
     # Basic styles
     for sh in wb.worksheets:
         sh.freeze_panes = "A2"
