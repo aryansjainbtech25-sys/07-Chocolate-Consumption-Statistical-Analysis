@@ -1,0 +1,20 @@
+{
+  "raw_rows": 13210,
+  "clean_rows": 13210,
+  "entities": 244,
+  "year_min": 1961,
+  "year_max": 2023,
+  "country_year_rows": 10176,
+  "pearson_r_year_supply": 0.2748768385449208,
+  "clean_csv": "data/processed/chocolate_consumption_clean.csv",
+  "workbook": "excel/chocolate_consumption_analysis.xlsx",
+  "report": "report/CIE3_Statistical_Analysis_Report.docx",
+  "charts": [
+    "charts/01_top_countries_latest_year.png",
+    "charts/02_entity_type_pie.png",
+    "charts/03_supply_histogram.png",
+    "charts/04_supply_boxplot.png",
+    "charts/05_year_supply_scatter.png",
+    "charts/06_world_trend.png"
+  ]
+}
