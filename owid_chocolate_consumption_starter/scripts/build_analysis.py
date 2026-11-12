@@ -298,13 +298,14 @@ def build_workbook(raw, df, paths, panel):
     hist.width = 17
     chartws.add_chart(hist, "J3")
 
-    # 4. Genuine XY scatterplot: one series, Year as X and supply as Y.
+    # 4. Clean XY scatterplot: markers only, without connecting lines.
     scatterws = wb.create_sheet("Scatter_Data")
     scatterws.append(["Year", "Supply (kg/person/year)"])
 
     scatter_sample = panel.sample(
-        min(3500, len(panel)), random_state=42
+        min(1200, len(panel)), random_state=42
     )
+
     for _, r in scatter_sample.iterrows():
         scatterws.append([int(r.Year), float(r[VALUE])])
 
@@ -314,6 +315,7 @@ def build_workbook(raw, df, paths, panel):
     sc.y_axis.title = "kg/person/year"
     sc.style = 13
     sc.scatterStyle = "marker"
+    sc.legend = None
 
     xvalues = Reference(
         scatterws, min_col=1, min_row=2,
@@ -324,15 +326,19 @@ def build_workbook(raw, df, paths, panel):
         max_row=len(scatter_sample)+1
     )
 
-    sc.series.append(
-        SeriesFactory(
-            yvalues,
-            xvalues,
-            title="Country-year observations"
-        )
+    series = SeriesFactory(
+        yvalues,
+        xvalues,
+        title="Country-year observations"
     )
+    series.marker.symbol = "circle"
+    series.marker.size = 4
+    series.graphicalProperties.line.noFill = True
+
+    sc.series.append(series)
     sc.height = 9
     sc.width = 17
+
     chartws.add_chart(sc, "J21")
 
     # 5. World trend: one continuous line series.
