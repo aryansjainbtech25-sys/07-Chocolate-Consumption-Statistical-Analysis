@@ -29,7 +29,7 @@ META_URL = "https://ourworldindata.org/grapher/chocolate-consumption-per-person.
 VALUE = "Cocoa beans - Food available for consumption (kilograms per year per capita)"
 SOURCE_CITATION = ("Food and Agriculture Organization of the United Nations (2025) – processed by Our World in Data. "
                    "“Yearly per capita supply of cocoa beans” [dataset]. Food and Agriculture Organization of the "
-                   "United Nations, Food Balances. Retrieved 12 November 2026 from " + 
+                   "United Nations, Food Balances. Retrieved 12 November 2026 from " +
                    "https://ourworldindata.org/grapher/chocolate-consumption-per-person")
 STUDENT = "Aryan S Jain"
 USN = "1RUA25CSE0087"
@@ -37,6 +37,7 @@ COURSE = "SE2041 Applied Statistics"
 FACULTY = "Prof. Varadurga Bhat"
 UNIVERSITY = "RV University, Bengaluru"
 ACADEMIC_YEAR = "2026–2027"
+
 
 def read_source():
     if not RAW.exists():
@@ -47,6 +48,7 @@ def read_source():
         raise ValueError(f"Unexpected columns. Expected {expected}; got {list(df.columns)}")
     return df
 
+
 def prepare_data(raw):
     df = raw.copy()
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
@@ -54,63 +56,102 @@ def prepare_data(raw):
     # Preserve all rows; missing codes are retained because aggregate/region rows may lack codes.
     df = df.dropna(subset=["Entity", "Year", VALUE]).copy()
     df["Year"] = df["Year"].astype(int)
-    df["Entity_Type"] = np.where(df["Code"].fillna("").str.fullmatch(r"[A-Z]{3}"),
-                                 "Country/territory", "Region or aggregate")
+    df["Entity_Type"] = np.where(
+        df["Code"].fillna("").str.fullmatch(r"[A-Z]{3}"),
+        "Country/territory",
+        "Region or aggregate"
+    )
     df = df.sort_values(["Entity", "Year"]).reset_index(drop=True)
     if df.duplicated(["Entity", "Year"]).any():
         raise ValueError("Duplicate Entity-Year pairs found; inspect source before proceeding.")
     return df
 
+
 def stats(series):
     s = pd.Series(series).dropna()
     mode_vals = s.mode()
     return {
-        "Count": int(s.count()), "Mean": float(s.mean()), "Median": float(s.median()),
+        "Count": int(s.count()),
+        "Mean": float(s.mean()),
+        "Median": float(s.median()),
         "Mode": float(mode_vals.iloc[0]) if len(mode_vals) else np.nan,
-        "Minimum": float(s.min()), "Maximum": float(s.max()), "Range": float(s.max()-s.min()),
-        "Sample variance": float(s.var(ddof=1)), "Sample standard deviation": float(s.std(ddof=1)),
-        "Q1": float(s.quantile(.25)), "Q2": float(s.quantile(.50)), "Q3": float(s.quantile(.75)),
+        "Minimum": float(s.min()),
+        "Maximum": float(s.max()),
+        "Range": float(s.max()-s.min()),
+        "Sample variance": float(s.var(ddof=1)),
+        "Sample standard deviation": float(s.std(ddof=1)),
+        "Q1": float(s.quantile(.25)),
+        "Q2": float(s.quantile(.50)),
+        "Q3": float(s.quantile(.75)),
         "IQR": float(s.quantile(.75)-s.quantile(.25)),
-        "P10": float(s.quantile(.10)), "P90": float(s.quantile(.90)),
+        "P10": float(s.quantile(.10)),
+        "P90": float(s.quantile(.90)),
         "Coefficient of variation (%)": float(s.std(ddof=1)/s.mean()*100) if s.mean()!=0 else np.nan
     }
 
+
 def make_charts(df, country):
-    plt.rcParams.update({"font.family":"DejaVu Sans", "font.size":9})
+    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9})
     latest_year = int(df["Year"].max())
-    latest = df[(df["Year"] == latest_year) & (df["Entity_Type"] == "Country/territory")].copy()
+
+    # Keep all entity types for the latest-year composition chart.
+    latest_data = df[df["Year"] == latest_year].copy()
+
+    # Use only countries/territories for the top-countries bar chart.
+    latest = latest_data[
+        latest_data["Entity_Type"] == "Country/territory"
+    ].copy()
     top = latest.nlargest(12, VALUE).sort_values(VALUE)
     paths = {}
+
     def save(name):
         p = CHARTS / name
         plt.tight_layout()
         plt.savefig(p, dpi=220, bbox_inches="tight")
         plt.close()
         paths[name] = p
-    plt.figure(figsize=(8,5))
+
+    # Figure 1: Top countries/territories
+    plt.figure(figsize=(8, 5))
     plt.barh(top["Entity"], top[VALUE])
     plt.xlabel("kg per person per year")
     plt.title(f"Top 12 countries/territories, {latest_year}")
     save("01_top_countries_latest_year.png")
-    plt.figure(figsize=(7,4.5))
-    latest["Entity_Type"].value_counts().plot(kind="pie", autopct="%1.1f%%", ylabel="")
+
+    # Figure 2: Composition of all entity types in the latest year
+    plt.figure(figsize=(7, 4.5))
+    entity_counts = latest_data["Entity_Type"].value_counts()
+    plt.pie(
+        entity_counts.values,
+        labels=entity_counts.index,
+        autopct="%1.1f%%",
+        startangle=90,
+        wedgeprops={"edgecolor": "white"}
+    )
     plt.title(f"Composition of entities in {latest_year}")
+    plt.axis("equal")
     save("02_entity_type_pie.png")
-    plt.figure(figsize=(7,4.5))
+
+    # Figure 3: Histogram
+    plt.figure(figsize=(7, 4.5))
     plt.hist(df[VALUE], bins=25, edgecolor="black")
     plt.xlabel("kg per person per year")
     plt.ylabel("Frequency")
     plt.title("Distribution of per-capita cocoa supply (all entity-years)")
     save("03_supply_histogram.png")
-    plt.figure(figsize=(7,4.5))
-    plt.boxplot(df[VALUE], vert=True, patch_artist=False)
+
+    # Figure 4: Boxplot
+    plt.figure(figsize=(7, 4.5))
+    plt.boxplot(df[VALUE], orientation="vertical", patch_artist=False)
     plt.ylabel("kg per person per year")
     plt.title("Boxplot of per-capita cocoa supply")
     save("04_supply_boxplot.png")
-    # Panel scatter: country/territory rows only; transparency and downsampling for readability.
+
+    # Figure 5: Year vs supply scatter plot
     panel = df[df["Entity_Type"] == "Country/territory"]
     plotdata = panel.sample(min(3500, len(panel)), random_state=42)
-    plt.figure(figsize=(7,4.5))
+
+    plt.figure(figsize=(7, 4.5))
     plt.scatter(plotdata["Year"], plotdata[VALUE], alpha=.25, s=9)
     z = np.polyfit(panel["Year"], panel[VALUE], 1)
     xx = np.linspace(panel["Year"].min(), panel["Year"].max(), 100)
@@ -119,46 +160,61 @@ def make_charts(df, country):
     plt.ylabel("kg per person per year")
     plt.title("Year and per-capita cocoa supply (country-year panel)")
     save("05_year_supply_scatter.png")
-    # World aggregate time series if available.
+
+    # Figure 6: World aggregate time series
     world = df[df["Code"].eq("OWID_WRL")].sort_values("Year")
     if len(world):
-        plt.figure(figsize=(8,4.5))
+        plt.figure(figsize=(8, 4.5))
         plt.plot(world["Year"], world[VALUE], marker="o", markersize=2)
         plt.xlabel("Year")
         plt.ylabel("kg per person per year")
         plt.title("World per-capita cocoa supply over time")
         save("06_world_trend.png")
+
     return paths
+
 
 def write_csvs(df):
     clean_path = PROCESSED / "chocolate_consumption_clean.csv"
     df.to_csv(clean_path, index=False)
     return clean_path
 
+
 def build_workbook(raw, df, paths, panel):
     wb = Workbook()
-    ws = wb.active; ws.title = "Read_Me"
+    ws = wb.active
+    ws.title = "Read_Me"
     ws.append(["Applied Statistics – Cocoa Supply Analysis"])
     ws.append(["Source", "FAO (2025), processed by Our World in Data"])
     ws.append(["Indicator", VALUE])
     ws.append(["Unit", "kilograms per person per year"])
     ws.append(["Source URL", SOURCE_URL])
-    ws.append(["Important interpretation", "Food supply available at consumer level; not measured actual intake; consumer waste is not deducted."])
-    ws.append(["Panel note", "Country-year observations repeat entities over time; pooled correlation is descriptive, not an independent-observation causal model."])
-    for row in raw.columns:
-        pass
+    ws.append([
+        "Important interpretation",
+        "Food supply available at consumer level; not measured actual intake; consumer waste is not deducted."
+    ])
+    ws.append([
+        "Panel note",
+        "Country-year observations repeat entities over time; pooled correlation is descriptive, not an independent-observation causal model."
+    ])
+
     rawws = wb.create_sheet("Raw_Data")
     rawws.append(list(raw.columns))
-    for r in raw.itertuples(index=False, name=None): rawws.append(list(r))
+    for r in raw.itertuples(index=False, name=None):
+        rawws.append(list(r))
+
     cleanws = wb.create_sheet("Clean_Data")
     cleanws.append(list(df.columns))
-    for r in df.itertuples(index=False, name=None): cleanws.append(list(r))
+    for r in df.itertuples(index=False, name=None):
+        cleanws.append(list(r))
+
     # Formula-driven calculations for core numeric variables.
     calc = wb.create_sheet("Descriptive_Stats")
     calc.append(["Measure", "Year", "Per-capita cocoa supply (kg/person/year)"])
     n = len(df)
     year_col = f"Clean_Data!C2:C{n+1}"
     val_col = f"Clean_Data!D2:D{n+1}"
+
     formulas = [
         ("Count", f"=COUNT({year_col})", f"=COUNT({val_col})"),
         ("Mean", f"=AVERAGE({year_col})", f"=AVERAGE({val_col})"),
@@ -177,24 +233,39 @@ def build_workbook(raw, df, paths, panel):
         ("P90", f"=PERCENTILE({year_col},0.9)", f"=PERCENTILE({val_col},0.9)"),
         ("CV (%)", "=NA()", f"=STDEV({val_col})/AVERAGE({val_col})*100"),
     ]
-    for row in formulas: calc.append(list(row))
+
+    for row in formulas:
+        calc.append(list(row))
+
     corr = wb.create_sheet("Correlation")
     corr.append(["Analysis", "Value"])
-    corr.append(["Pearson correlation: Year vs supply (country/territory rows)", float(panel["Year"].corr(panel[VALUE]))])
+    corr.append([
+        "Pearson correlation: Year vs supply (country/territory rows)",
+        float(panel["Year"].corr(panel[VALUE]))
+    ])
     corr.append(["N country-year observations", len(panel)])
-    corr.append(["Interpretation", "Descriptive pooled panel association; repeated observations per entity mean standard independent-observation inference is not appropriate."])
+    corr.append([
+        "Interpretation",
+        "Descriptive pooled panel association; repeated observations per entity mean standard independent-observation inference is not appropriate."
+    ])
     corr.append(["Regression slope", float(np.polyfit(panel["Year"], panel[VALUE], 1)[0])])
     corr.append(["Regression intercept", float(np.polyfit(panel["Year"], panel[VALUE], 1)[1])])
     corr.append(["R squared", float(panel["Year"].corr(panel[VALUE])**2)])
+
     # Frequency tables
     freq = wb.create_sheet("Frequency_Tables")
     freq.append(["Entity type", "Frequency"])
-    for k,v in df["Entity_Type"].value_counts().items(): freq.append([k,int(v)])
+    for k, v in df["Entity_Type"].value_counts().items():
+        freq.append([k, int(v)])
+
     freq.append([])
     freq.append(["Per-capita supply class (kg)", "Frequency"])
+
     bins = [0, .1, .5, 1, 2, 4, 8, 16]
-    labels = ["0–<0.1", "0.1–<0.5", "0.5–<1",
-              "1–<2", "2–<4", "4–<8", "8–16"]
+    labels = [
+        "0–<0.1", "0.1–<0.5", "0.5–<1",
+        "1–<2", "2–<4", "4–<8", "8–16"
+    ]
 
     vc = pd.cut(
         df[VALUE],
@@ -207,6 +278,7 @@ def build_workbook(raw, df, paths, panel):
     assert int(vc.sum()) == len(df), (
         "Some observations were not included in the frequency classes."
     )
+
     for k, v in vc.items():
         freq.append([str(k), int(v)])
 
@@ -215,11 +287,12 @@ def build_workbook(raw, df, paths, panel):
 
     chartws = wb.create_sheet("Charts")
     chartws["A1"] = "Editable Excel charts; matching high-resolution PNGs are in charts/."
-
     latest_year = int(df["Year"].max())
     latest = (
-        df[(df["Year"] == latest_year) &
-           (df["Entity_Type"] == "Country/territory")]
+        df[
+            (df["Year"] == latest_year) &
+            (df["Entity_Type"] == "Country/territory")
+        ]
         .nlargest(12, VALUE)
         .sort_values(VALUE)
     )
@@ -250,10 +323,15 @@ def build_workbook(raw, df, paths, panel):
     bar.y_axis.scaling.orientation = "maxMin"
     chartws.add_chart(bar, "A3")
 
-    # 2. Entity type: pie chart.
+    # 2. Entity type: pie chart for the latest year.
     entws = wb.create_sheet("Entity_Type_Data")
     entws.append(["Entity type", "Frequency"])
-    for k, v in df["Entity_Type"].value_counts().items():
+
+    latest_entity_counts = df.loc[
+        df["Year"] == latest_year, "Entity_Type"
+    ].value_counts()
+
+    for k, v in latest_entity_counts.items():
         entws.append([k, int(v)])
 
     pie = __import__(
@@ -380,145 +458,400 @@ def build_workbook(raw, df, paths, panel):
     for sh in wb.worksheets:
         sh.freeze_panes = "A2"
         sh.sheet_view.showGridLines = False
+
         for c in sh[1]:
-            c.font = Font(name="Times New Roman", size=12, bold=True, color="FFFFFF")
+            c.font = Font(
+                name="Times New Roman",
+                size=12,
+                bold=True,
+                color="FFFFFF"
+            )
             c.fill = PatternFill("solid", fgColor="1F4E78")
             c.alignment = Alignment(wrap_text=True, vertical="center")
+
         for col in sh.columns:
             letter = col[0].column_letter
-            maxlen = min(55, max((len(str(x.value or "")) for x in col[:300]), default=12))
+            maxlen = min(
+                55,
+                max((len(str(x.value or "")) for x in col[:300]), default=12)
+            )
             sh.column_dimensions[letter].width = max(14, maxlen+2)
+
     out = EXCEL / "chocolate_consumption_analysis.xlsx"
     wb.save(out)
     return out
+
 
 def add_table(doc, headers, rows, font_size=12):
     # Professor requires 12 pt throughout, including table text.
     font_size = 12
     table = doc.add_table(rows=1, cols=len(headers))
-    table.style = "Table Grid"; table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for i,h in enumerate(headers):
-        cell=table.rows[0].cells[i]; cell.text=str(h)
-        for r in cell.paragraphs[0].runs: r.bold=True; r.font.name="Times New Roman"; r.font.size=Pt(font_size)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    for i, h in enumerate(headers):
+        cell = table.rows[0].cells[i]
+        cell.text = str(h)
+        for r in cell.paragraphs[0].runs:
+            r.bold = True
+            r.font.name = "Times New Roman"
+            r.font.size = Pt(font_size)
+
     for row in rows:
-        cells=table.add_row().cells
-        for i,x in enumerate(row):
-            cells[i].text=str(x)
+        cells = table.add_row().cells
+        for i, x in enumerate(row):
+            cells[i].text = str(x)
             for p in cells[i].paragraphs:
-                for r in p.runs: r.font.name="Times New Roman"; r.font.size=Pt(font_size)
+                for r in p.runs:
+                    r.font.name = "Times New Roman"
+                    r.font.size = Pt(font_size)
+
     return table
 
+
 def build_report(raw, df, panel, paths, clean_path, workbook_path):
-    doc=Document()
-    sec=doc.sections[0]; sec.page_width=Cm(21); sec.page_height=Cm(29.7)
-    sec.top_margin=Cm(2.2); sec.bottom_margin=Cm(2.2); sec.left_margin=Cm(2.5); sec.right_margin=Cm(2.5)
-    normal=doc.styles["Normal"]; normal.font.name="Times New Roman"; normal.font.size=Pt(12)
-    normal.paragraph_format.line_spacing=1.15
-    for sname in ["Heading 1","Heading 2","Heading 3"]:
-        st=doc.styles[sname]; st.font.name="Times New Roman"
+    doc = Document()
+    sec = doc.sections[0]
+    sec.page_width = Cm(21)
+    sec.page_height = Cm(29.7)
+    sec.top_margin = Cm(2.2)
+    sec.bottom_margin = Cm(2.2)
+    sec.left_margin = Cm(2.5)
+    sec.right_margin = Cm(2.5)
+
+    normal = doc.styles["Normal"]
+    normal.font.name = "Times New Roman"
+    normal.font.size = Pt(12)
+    normal.paragraph_format.line_spacing = 1.15
+
+    for sname in ["Heading 1", "Heading 2", "Heading 3"]:
+        st = doc.styles[sname]
+        st.font.name = "Times New Roman"
+
     def para(text="", bold=False, align=None):
-        p=doc.add_paragraph()
-        if align is not None: p.alignment=align
-        r=p.add_run(text); r.bold=bold; r.font.name="Times New Roman"; r.font.size=Pt(12)
-        p.paragraph_format.line_spacing=1.15
+        p = doc.add_paragraph()
+        if align is not None:
+            p.alignment = align
+        r = p.add_run(text)
+        r.bold = bold
+        r.font.name = "Times New Roman"
+        r.font.size = Pt(12)
+        p.paragraph_format.line_spacing = 1.15
         return p
+
     def heading(text, level=1):
-        p=doc.add_heading(text,level=level); p.paragraph_format.line_spacing=1.15
-        for r in p.runs: r.font.name="Times New Roman"
+        p = doc.add_heading(text, level=level)
+        p.paragraph_format.line_spacing = 1.15
+        for r in p.runs:
+            r.font.name = "Times New Roman"
+
     def picture(filename, caption):
-        p=doc.add_picture(str(paths[filename]),width=Inches(5.8))
-        doc.paragraphs[-1].alignment=WD_ALIGN_PARAGRAPH.CENTER
-        cp=para(caption,align=WD_ALIGN_PARAGRAPH.CENTER)
-        for r in cp.runs: r.italic=True
+        p = doc.add_picture(str(paths[filename]), width=Inches(5.8))
+        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cp = para(caption, align=WD_ALIGN_PARAGRAPH.CENTER)
+        for r in cp.runs:
+            r.italic = True
+
     # Cover
-    for _ in range(2): para("")
-    para("RV UNIVERSITY, BENGALURU",True,WD_ALIGN_PARAGRAPH.CENTER)
-    para("SCHOOL OF COMPUTER SCIENCE AND ENGINEERING",True,WD_ALIGN_PARAGRAPH.CENTER)
-    para(COURSE,True,WD_ALIGN_PARAGRAPH.CENTER)
-    para("CIE 3 – STATISTICAL ANALYSIS PROJECT AND PRESENTATION",True,WD_ALIGN_PARAGRAPH.CENTER)
-    for _ in range(2): para("")
-    para("Statistical Analysis of Per-Capita Cocoa Supply",True,WD_ALIGN_PARAGRAPH.CENTER)
-    for _ in range(2): para("")
-    para("Submitted by",True,WD_ALIGN_PARAGRAPH.CENTER); para(f"{STUDENT} ({USN})",False,WD_ALIGN_PARAGRAPH.CENTER)
-    para("Under the guidance of",True,WD_ALIGN_PARAGRAPH.CENTER); para(FACULTY,False,WD_ALIGN_PARAGRAPH.CENTER)
-    for _ in range(3): para("")
-    para(f"Academic Year {ACADEMIC_YEAR} | 12 November 2026",False,WD_ALIGN_PARAGRAPH.CENTER)
+    for _ in range(2):
+        para("")
+    para("RV UNIVERSITY, BENGALURU", True, WD_ALIGN_PARAGRAPH.CENTER)
+    para("SCHOOL OF COMPUTER SCIENCE AND ENGINEERING", True, WD_ALIGN_PARAGRAPH.CENTER)
+    para(COURSE, True, WD_ALIGN_PARAGRAPH.CENTER)
+    para("CIE 3 – STATISTICAL ANALYSIS PROJECT AND PRESENTATION", True, WD_ALIGN_PARAGRAPH.CENTER)
+
+    for _ in range(2):
+        para("")
+
+    para("Statistical Analysis of Per-Capita Cocoa Supply", True, WD_ALIGN_PARAGRAPH.CENTER)
+
+    for _ in range(2):
+        para("")
+
+    para("Submitted by", True, WD_ALIGN_PARAGRAPH.CENTER)
+    para(f"{STUDENT} ({USN})", False, WD_ALIGN_PARAGRAPH.CENTER)
+    para("Under the guidance of", True, WD_ALIGN_PARAGRAPH.CENTER)
+    para(FACULTY, False, WD_ALIGN_PARAGRAPH.CENTER)
+
+    for _ in range(3):
+        para("")
+        para(f"Academic Year {ACADEMIC_YEAR} | 12 November 2026", False, WD_ALIGN_PARAGRAPH.CENTER)
     doc.add_page_break()
-    heading("CERTIFICATE",1)
-    para(f"Certified that the {COURSE} CIE 3 project titled “Statistical Analysis of Per-Capita Cocoa Supply” is carried out by {STUDENT} ({USN}), a student of the School of Computer Science and Engineering, {UNIVERSITY}, during the academic year {ACADEMIC_YEAR}.")
+
+    heading("CERTIFICATE", 1)
+    para(
+        f"Certified that the {COURSE} CIE 3 project titled "
+        f"“Statistical Analysis of Per-Capita Cocoa Supply” is carried out by "
+        f"{STUDENT} ({USN}), a student of the School of Computer Science and "
+        f"Engineering, {UNIVERSITY}, during the academic year {ACADEMIC_YEAR}."
+    )
     para("")
-    para("Faculty Guide: __________________________                 Program Director: __________________________")
+    para(
+        "Faculty Guide: __________________________                 "
+        "Program Director: __________________________"
+    )
     doc.add_page_break()
+
     heading("1. Problem Statement and Research Objectives")
-    para("This project examines how per-capita cocoa supply varies over time and across countries and regions. The research question is: “Is there an association between year and per-capita cocoa supply across countries?” The analysis uses the annual country/territory observations in the Our World in Data indicator dataset. It describes distributions, compares entities, and examines the pooled association between year and the indicator.")
+    para(
+        "This project examines how per-capita cocoa supply varies over time and "
+        "across countries and regions. The research question is: “Is there an "
+        "association between year and per-capita cocoa supply across countries?” "
+        "The analysis uses the annual country/territory observations in the Our "
+        "World in Data indicator dataset. It describes distributions, compares "
+        "entities, and examines the pooled association between year and the indicator."
+    )
+
     heading("2. Dataset Description and Source")
-    para(f"The downloaded dataset contains {len(raw):,} rows and four original variables. The observation is an entity-year record. The years span {int(df.Year.min())}–{int(df.Year.max())}; the file contains {df.Entity.nunique()} distinct entities. The indicator is measured in kilograms per person per year.")
-    para("The underlying provider is the Food and Agriculture Organization of the United Nations (FAO), with data processed by Our World in Data (OWID). The indicator represents food supply available at the consumer level, not directly measured intake; consumer waste is not deducted. It combines cocoa beans and specified cocoa products. The report therefore uses the term “per-capita cocoa supply” rather than claiming to measure actual chocolate eaten.")
+    para(
+        f"The downloaded dataset contains {len(raw):,} rows and four original "
+        f"variables. The observation is an entity-year record. The years span "
+        f"{int(df.Year.min())}–{int(df.Year.max())}; the file contains "
+        f"{df.Entity.nunique()} distinct entities. The indicator is measured "
+        f"in kilograms per person per year."
+    )
+    para(
+        "The underlying provider is the Food and Agriculture Organization of "
+        "the United Nations (FAO), with data processed by Our World in Data "
+        "(OWID). The indicator represents food supply available at the consumer "
+        "level, not directly measured intake; consumer waste is not deducted. "
+        "It combines cocoa beans and specified cocoa products. The report "
+        "therefore uses the term “per-capita cocoa supply” rather than claiming "
+        "to measure actual chocolate eaten."
+    )
     para("Citation: " + SOURCE_CITATION)
+
     heading("3. Variables and Measurement Scales")
-    rows=[
-        ["Entity","Qualitative","Nominal","Country, territory or region name"],
-        ["Code","Qualitative","Nominal","Geographic identifier; some aggregate rows have no code"],
-        ["Year","Quantitative – discrete","Interval","Calendar year"],
-        [VALUE,"Quantitative – continuous","Ratio","Annual food supply in kg/person/year"],
-        ["Entity_Type","Qualitative – derived","Nominal","Country/territory or region/aggregate classification based on code format"]
+    rows = [
+        ["Entity", "Qualitative", "Nominal", "Country, territory or region name"],
+        ["Code", "Qualitative", "Nominal", "Geographic identifier; some aggregate rows have no code"],
+        ["Year", "Quantitative – discrete", "Interval", "Calendar year"],
+        [VALUE, "Quantitative – continuous", "Ratio", "Annual food supply in kg/person/year"],
+        ["Entity_Type", "Qualitative – derived", "Nominal", "Country/territory or region/aggregate classification based on code format"]
     ]
-    add_table(doc,["Variable","Classification","Scale","Description"],rows,8)
-    para("The cleaned analytical file retains rows with missing Code values because these can represent OWID aggregate or region entities. Records are excluded only if Entity, Year or the numerical indicator is missing. No values are imputed.")
+    add_table(doc, ["Variable", "Classification", "Scale", "Description"], rows, 8)
+
+    para(
+        "The cleaned analytical file retains rows with missing Code values "
+        "because these can represent OWID aggregate or region entities. Records "
+        "are excluded only if Entity, Year or the numerical indicator is missing. "
+        "No values are imputed."
+    )
+
     heading("4. Data Cleaning and Sampling")
-    para(f"The source file has {len(raw):,} observations. After checking required fields and removing rows with missing Entity, Year or indicator values, {len(df):,} observations remain. Missing Code values are retained and classified as region/aggregate rather than treated as missing observations. The full available dataset is used; no random sample is drawn.")
+    para(
+        f"The source file has {len(raw):,} observations. After checking required "
+        f"fields and removing rows with missing Entity, Year or indicator values, "
+        f"{len(df):,} observations remain. Missing Code values are retained and "
+        "classified as region/aggregate rather than treated as missing observations. "
+        "The full available dataset is used; no random sample is drawn."
+    )
+
     heading("5. Frequency Tables and Visualizations")
-    para("A frequency table is prepared for entity type. The indicator is continuous, so its values are grouped into numerical intervals for a frequency distribution. The latest-year bar chart compares countries/territories, while the pie chart describes the composition of entity types in the latest year.")
-    et=df["Entity_Type"].value_counts()
-    add_table(doc,["Entity type","Frequency"],[[k,int(v)] for k,v in et.items()],9)
-    picture("01_top_countries_latest_year.png","Figure 1. Countries/territories with the highest per-capita cocoa supply in the latest year")
-    picture("02_entity_type_pie.png","Figure 2. Entity-type composition in the latest year")
-    picture("03_supply_histogram.png","Figure 3. Distribution of per-capita cocoa supply across entity-year observations")
-    picture("04_supply_boxplot.png","Figure 4. Box-and-whisker plot of per-capita cocoa supply")
-    if "06_world_trend.png" in paths: picture("06_world_trend.png","Figure 5. World aggregate per-capita cocoa supply over time")
+    para(
+        "A frequency table is prepared for entity type. The indicator is "
+        "continuous, so its values are grouped into numerical intervals for a "
+        "frequency distribution. The latest-year bar chart compares "
+        "countries/territories, while the pie chart describes the composition "
+        "of entity types in the latest year."
+    )
+
+    # Entity type frequency for the latest year only.
+    latest_year = int(df["Year"].max())
+    latest_data = df[df["Year"] == latest_year]
+    et = latest_data["Entity_Type"].value_counts()
+
+    add_table(
+        doc,
+        ["Entity type", "Frequency"],
+        [[k, int(v)] for k, v in et.items()]
+    )
+
+    # Per-capita cocoa supply frequency distribution.
+    bins = [0, 0.1, 0.5, 1, 2, 4, 8, 16]
+    labels = [
+        "0–<0.1",
+        "0.1–<0.5",
+        "0.5–<1",
+        "1–<2",
+        "2–<4",
+        "4–<8",
+        "8–16"
+    ]
+
+    supply_classes = pd.cut(
+        df[VALUE],
+        bins=bins,
+        labels=labels,
+        right=False,
+        include_lowest=True
+    )
+
+    supply_frequency = supply_classes.value_counts().reindex(
+        labels,
+        fill_value=0
+    )
+
+    para("Frequency distribution of per-capita cocoa supply:")
+
+    add_table(
+        doc,
+        ["Supply class (kg/person/year)", "Frequency"],
+        [[label, int(supply_frequency[label])] for label in labels]
+    )
+
+    picture(
+        "01_top_countries_latest_year.png",
+        "Figure 1. Countries/territories with the highest per-capita cocoa supply in the latest year"
+    )
+    picture(
+        "02_entity_type_pie.png",
+        "Figure 2. Entity-type composition in the latest year"
+    )
+    picture(
+        "03_supply_histogram.png",
+        "Figure 3. Distribution of per-capita cocoa supply across entity-year observations"
+    )
+    picture(
+        "04_supply_boxplot.png",
+        "Figure 4. Box-and-whisker plot of per-capita cocoa supply"
+    )
+
+    if "06_world_trend.png" in paths:
+        picture(
+            "06_world_trend.png",
+            "Figure 5. World aggregate per-capita cocoa supply over time"
+        )
+
     heading("6. Descriptive Statistical Analysis")
-    st=stats(df[VALUE])
-    rows=[[k, f"{v:.4f}" if isinstance(v,(float,np.floating)) else v] for k,v in st.items()]
-    add_table(doc,["Measure","Per-capita cocoa supply"],rows,9)
-    para(f"The mean is {st['Mean']:.4f} kg/person/year and the median is {st['Median']:.4f}. The standard deviation is {st['Sample standard deviation']:.4f}, while the coefficient of variation is {st['Coefficient of variation (%)']:.2f}%. The mean exceeding the median may indicate right-skewness; the histogram and boxplot should be considered alongside these summaries. These pooled statistics combine different entities and years and should not be interpreted as the experience of a typical individual country.")
+    st = stats(df[VALUE])
+    rows = [
+        [k, f"{v:.4f}" if isinstance(v, (float, np.floating)) else v]
+        for k, v in st.items()
+    ]
+    add_table(doc, ["Measure", "Per-capita cocoa supply"], rows, 9)
+
+    para(
+        f"The mean per-capita cocoa supply is {st['Mean']:.4f} kg/person/year, "
+        f"while the median is {st['Median']:.4f} kg/person/year. The sample "
+        f"standard deviation is {st['Sample standard deviation']:.4f}, and "
+        f"the coefficient of variation is {st['Coefficient of variation (%)']:.2f}%. "
+        "The mean is greater than the median, suggesting a positively skewed "
+        "distribution. This indicates that a relatively small number of "
+        "observations have considerably higher cocoa supply values. The "
+        "histogram and boxplot provide additional visual evidence of this "
+        "distribution. These statistics combine different entities and years "
+        "and should not be interpreted as the experience of a typical individual country."
+    )
+
+    para(
+        "Correlation does not imply causation. Although the positive Pearson "
+        "correlation indicates that year and per-capita cocoa supply tend to "
+        "increase together in the pooled observations, it does not establish "
+        "that the passage of time directly causes an increase in cocoa supply. "
+        "Other factors, including agricultural production, international trade, "
+        "population changes and differences between countries, may influence "
+        "the observed relationship."
+    )
+
     heading("7. Relationship Between Year and Per-Capita Cocoa Supply")
-    r=float(panel["Year"].corr(panel[VALUE]))
-    slope,intercept=np.polyfit(panel["Year"],panel[VALUE],1)
-    r2=r*r
-    picture("05_year_supply_scatter.png","Figure 6. Scatterplot of year and per-capita cocoa supply for country/territory observations (display sample)")
-    para(f"For country/territory observations with three-letter codes, the pooled Pearson correlation between Year and the indicator is r = {r:.4f} (n = {len(panel):,}). The fitted descriptive line is supply = {slope:.6f} × year + {intercept:.4f}, with R² = {r2:.4f}. This pooled panel correlation describes the overall linear association in the combined country-year observations.")
-    para("Important limitation: observations repeat for the same country/territory across years, and countries differ substantially in their long-run supply levels. The pooled Pearson coefficient therefore does not satisfy the usual independent-observation assumption for conventional significance testing. It can also combine within-country time trends with between-country differences. It is not evidence that calendar year causes a change in supply. A stronger follow-up would estimate country-specific trends or use a panel-data model.")
+    r = float(panel["Year"].corr(panel[VALUE]))
+    slope, intercept = np.polyfit(panel["Year"], panel[VALUE], 1)
+    r2 = r*r
+
+    picture(
+        "05_year_supply_scatter.png",
+        "Figure 6. Scatterplot of year and per-capita cocoa supply for country/territory observations (display sample)"
+    )
+
+    para(
+        f"For country/territory observations with three-letter codes, the pooled "
+        f"Pearson correlation between Year and the indicator is r = {r:.4f} "
+        f"(n = {len(panel):,}). The fitted descriptive line is supply = "
+        f"{slope:.6f} × year + {intercept:.4f}, with R² = {r2:.4f}. This pooled "
+        "panel correlation describes the overall linear association in the "
+        "combined country-year observations."
+    )
+
+    para(
+        "Important limitation: observations repeat for the same country/territory "
+        "across years, and countries differ substantially in their long-run "
+        "supply levels. The pooled Pearson coefficient therefore does not "
+        "satisfy the usual independent-observation assumption for conventional "
+        "significance testing. It can also combine within-country time trends "
+        "with between-country differences. It is not evidence that calendar "
+        "year causes a change in supply. A stronger follow-up would estimate "
+        "country-specific trends or use a panel-data model."
+    )
+
     heading("8. Conclusion")
-    para(f"The dataset provides {len(df):,} entity-year observations from {df.Year.min()} to {df.Year.max()} and includes qualitative entity identifiers alongside the quantitative year and per-capita supply variables. Descriptive statistics and visualizations show the distribution and variation of the indicator. The pooled country-year correlation is {r:.4f}; it should be interpreted cautiously because the observations form a repeated-measures panel. The results describe food supply available per person, not actual consumption after waste.")
+    para(
+        f"The dataset provides {len(df):,} entity-year observations from "
+        f"{df.Year.min()} to {df.Year.max()} and includes qualitative entity "
+        "identifiers alongside the quantitative year and per-capita supply "
+        "variables. Descriptive statistics and visualizations show the "
+        f"distribution and variation of the indicator. The pooled country-year "
+        f"correlation is {r:.4f}; it should be interpreted cautiously because "
+        "the observations form a repeated-measures panel. The results describe "
+        "food supply available per person, not actual consumption after waste."
+    )
+
     heading("9. Limitations and Future Scope")
-    para("The indicator is a food-supply measure and not direct survey measurement of individual consumption. The dataset combines country/territory observations and regional aggregates; aggregate rows must not be mixed with countries when making country-level comparisons. Repeated observations over time are not independent. Future work can focus on a single country’s time series, compare a preselected group of countries, or use panel regression with entity effects.")
+    para(
+        "The indicator is a food-supply measure and not direct survey measurement "
+        "of individual consumption. The dataset combines country/territory "
+        "observations and regional aggregates; aggregate rows must not be mixed "
+        "with countries when making country-level comparisons. Repeated "
+        "observations over time are not independent. Future work can focus on "
+        "a single country’s time series, compare a preselected group of "
+        "countries, or use panel regression with entity effects."
+    )
+
     heading("10. References")
     para(SOURCE_CITATION)
-    para("Our World in Data. “Cocoa bean consumption per person.” https://ourworldindata.org/grapher/chocolate-consumption-per-person")
-    para("Data accessed 12 November 2026. The dataset and OWID-produced materials are made available under CC BY; original FAO data remain subject to the provider’s terms. Credit both FAO and Our World in Data.")
-    out=REPORT/"CIE3_Statistical_Analysis_Report.docx"
+    para(
+        "Our World in Data. “Cocoa bean consumption per person.” "
+        "https://ourworldindata.org/grapher/chocolate-consumption-per-person"
+    )
+    para(
+        "Data accessed 12 November 2026. The dataset and OWID-produced materials "
+        "are made available under CC BY; original FAO data remain subject to "
+        "the provider’s terms. Credit both FAO and Our World in Data."
+    )
+
+    out = REPORT / "CIE3_Statistical_Analysis_Report.docx"
     doc.save(out)
     return out
 
+
 def main():
-    raw=read_source()
-    df=prepare_data(raw)
-    clean_path=write_csvs(df)
-    paths=make_charts(df, None)
-    panel=df[df["Entity_Type"]=="Country/territory"].copy()
-    workbook=build_workbook(raw,df,paths,panel)
-    report=build_report(raw,df,panel,paths,clean_path,workbook)
-    summary={
-        "raw_rows":len(raw),"clean_rows":len(df),"entities":int(df.Entity.nunique()),
-        "year_min":int(df.Year.min()),"year_max":int(df.Year.max()),
-        "country_year_rows":len(panel),"pearson_r_year_supply":float(panel["Year"].corr(panel[VALUE])),
-        "clean_csv":str(clean_path.relative_to(ROOT)),"workbook":str(workbook.relative_to(ROOT)),
-        "report":str(report.relative_to(ROOT)),"charts":[str(p.relative_to(ROOT)) for p in paths.values()]
+    raw = read_source()
+    df = prepare_data(raw)
+    clean_path = write_csvs(df)
+    paths = make_charts(df, None)
+    panel = df[df["Entity_Type"] == "Country/territory"].copy()
+    workbook = build_workbook(raw, df, paths, panel)
+    report = build_report(raw, df, panel, paths, clean_path, workbook)
+
+    summary = {
+        "raw_rows": len(raw),
+        "clean_rows": len(df),
+        "entities": int(df.Entity.nunique()),
+        "year_min": int(df.Year.min()),
+        "year_max": int(df.Year.max()),
+        "country_year_rows": len(panel),
+        "pearson_r_year_supply": float(panel["Year"].corr(panel[VALUE])),
+        "clean_csv": str(clean_path.relative_to(ROOT)),
+        "workbook": str(workbook.relative_to(ROOT)),
+        "report": str(report.relative_to(ROOT)),
+        "charts": [str(p.relative_to(ROOT)) for p in paths.values()]
     }
-    (ROOT/"build_summary.json").write_text(json.dumps(summary,indent=2))
-    print(json.dumps(summary,indent=2))
-    print("\\nIMPORTANT: Open the XLSX in Excel/LibreOffice to recalculate formulas and inspect chart editability.")
+
+    (ROOT / "build_summary.json").write_text(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2))
+    print("\nIMPORTANT: Open the XLSX in Excel/LibreOffice to recalculate formulas and inspect chart editability.")
     print("Review the DOCX, especially the panel-correlation explanation and the latest-year chart, before submission.")
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
