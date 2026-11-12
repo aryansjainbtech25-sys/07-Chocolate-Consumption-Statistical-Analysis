@@ -193,9 +193,23 @@ def build_workbook(raw, df, paths, panel):
     freq.append([])
     freq.append(["Per-capita supply class (kg)", "Frequency"])
     bins = [0, .1, .5, 1, 2, 4, 8, 16]
-    labels = ["0–<0.1","0.1–<0.5","0.5–<1","1–<2","2–<4","4–<8","8–16"]
-    vc = pd.cut(df[VALUE], bins=bins, labels=labels, include_lowest=True).value_counts().sort_index()
-    for k,v in vc.items(): freq.append([str(k),int(v)])
+    labels = ["0–<0.1", "0.1–<0.5", "0.5–<1",
+              "1–<2", "2–<4", "4–<8", "8–16"]
+
+    vc = pd.cut(
+        df[VALUE],
+        bins=bins,
+        labels=labels,
+        right=False,
+        include_lowest=True
+    ).value_counts().sort_index()
+
+    assert int(vc.sum()) == len(df), (
+        "Some observations were not included in the frequency classes."
+    )
+    for k, v in vc.items():
+        freq.append([str(k), int(v)])
+
     # Native editable Excel charts. Supporting data are kept on separate sheets.
     chartws = wb.create_sheet("Charts")
     chartws["A1"] = "Editable Excel charts; matching high-resolution PNGs are in charts/."
